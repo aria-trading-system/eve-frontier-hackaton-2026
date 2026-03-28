@@ -138,6 +138,18 @@ export function useCreateSyndicate() {
                 ownerCapId: createdOwnerCapId,
                 contributionRecordId: createdContributionRecordId,
             };
+            // Persist IDs in localStorage for lookup fallback
+            if (createdSyndicateId) {
+                try {
+                    const stored = JSON.parse(localStorage.getItem('obp_syndicate_ids') || '{}');
+                    stored[createdSyndicateId] = {
+                        ownerCapId: createdOwnerCapId,
+                        contributionRecordId: createdContributionRecordId,
+                    };
+                    localStorage.setItem('obp_syndicate_ids', JSON.stringify(stored));
+                } catch {}
+            }
+
             setResult(res);
             return res;
         } catch (err: any) {

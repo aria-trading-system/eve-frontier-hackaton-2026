@@ -11,6 +11,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { RPC_URL, PACKAGE_ID } from '../lib/constants';
 
+// --- localStorage fallback ---
+
+function getLocalStorageHints(syndicateId: string): { ownerCapId?: string; contributionRecordId?: string } {
+    try {
+        const stored = JSON.parse(localStorage.getItem('obp_syndicate_ids') || '{}');
+        return stored[syndicateId] || {};
+    } catch {
+        return {};
+    }
+}
+
 // --- Lookup: ContributionRecord ID via creation tx ---
 
 async function lookupContributionRecordId(syndicateId: string): Promise<string | null> {
@@ -80,11 +91,18 @@ export function useSyndicateLookup(
     walletAddress: string | undefined,
     hints?: { ownerCapId?: string; contributionRecordId?: string }
 ) {
+    // Check localStorage for persisted IDs from useCreateSyndicate
+    const localHints = syndicateId ? getLocalStorageHints(syndicateId) : {};
+    const mergedHints = {
+        ownerCapId: hints?.ownerCapId || localHints.ownerCapId,
+        contributionRecordId: hints?.contributionRecordId || localHints.contributionRecordId,
+    };
+
     // Contribution Record ID — skip if hint provided
     const crQuery = useQuery({
         queryKey: ['contribution-record-lookup', syndicateId],
         queryFn: () => lookupContributionRecordId(syndicateId!),
-        enabled: !!syndicateId && !hints?.contributionRecordId,
+        enabled: !!syndicateId && !mergedHints.contributionRecordId,
         staleTime: 5 * 60_000,  // cache 5 min — doesn't change after creation
         retry: 2,
     });
@@ -93,16 +111,16 @@ export function useSyndicateLookup(
     const capQuery = useQuery({
         queryKey: ['owner-cap-lookup', syndicateId, walletAddress],
         queryFn: () => lookupOwnerCapId(syndicateId!, walletAddress!),
-        enabled: !!syndicateId && !!walletAddress && !hints?.ownerCapId,
+        enabled: !!syndicateId && !!walletAddress && !mergedHints.ownerCapId,
         staleTime: 5 * 60_000,
         retry: 2,
     });
 
     return {
-        ownerCapId: hints?.ownerCapId ?? capQuery.data ?? null,
-        contributionRecordId: hints?.contributionRecordId ?? crQuery.data ?? null,
+        ownerCapId: mergedHints.ownerCapId ?? capQuery.data ?? null,
+        contributionRecordId: mergedHints.contributionRecordId ?? crQuery.data ?? null,
         isLoading:
-            (!hints?.contributionRecordId && crQuery.isLoading) ||
-            (!hints?.ownerCapId && !!walletAddress && capQuery.isLoading),
+            (!mergedHints.contributionRecordId && crQuery.isLoading) ||
+            (!mergedHints.ownerCapId && !!walletAddress && capQuery.isLoading),
     };
 }

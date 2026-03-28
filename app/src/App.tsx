@@ -5,6 +5,7 @@ import CreateSyndicatePage from './pages/CreateSyndicatePage';
 import SyndicatePage from './pages/SyndicatePage';
 import GatePage from './pages/GatePage';
 import JoinPage from './pages/JoinPage';
+import TestApiPage from './pages/TestApiPage';
 
 export default function App() {
     return (
@@ -15,6 +16,7 @@ export default function App() {
                 <Route path="/syndicate/:id"      element={<SyndicatePage />} />
                 <Route path="/gate/:id"           element={<GatePage />} />
                 <Route path="/join/:id"           element={<JoinPage />} />
+                <Route path="/test-api"            element={<TestApiPage />} />
             </Route>
         </Routes>
     );
