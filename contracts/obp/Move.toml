@@ -1,0 +1,9 @@
+[package]
+name = "obp"
+edition = "2024"
+
+[dependencies]
+world = { local = "../../../vendor/world-contracts/contracts/world" }
+
+[environments]
+testnet_utopia = "4c78adac"
