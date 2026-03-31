@@ -66,7 +66,7 @@ Per-member scoring weighted by market price. Officers record contributions oncha
          │  gate_policy.move  — gates  │
          │  contribution.move — econ   │
          │                             │
-         │  34/34 tests ✅             │
+         │  34/34 tests passing        │
          │  Deployed on Utopia         │
          └─────────────────────────────┘
 ```
