@@ -8,10 +8,10 @@ OBP gives player tribes real power. Create a Syndicate, control gate access, blo
 
 **Live dApp:** [eve-frontier.vercel.app](https://eve-frontier.vercel.app)
 
-![OBP — Homepage](screenshots/Screenshot_18.png)
-![OBP — Create Syndicate](screenshots/Screenshot_19.png)
-![OBP — Syndicate Dashboard](screenshots/Screenshot_20.png)
-![OBP — Gate Configuration](screenshots/Screenshot_21.png)
+![OBP — Homepage](screenshots/14_homepage_with_syndicate.png)
+![OBP — Syndicate Dashboard](screenshots/07_contribution_recorded.png)
+![OBP — Gate Configuration](screenshots/09_gate_configured.png)
+![OBP — Explore Syndicates](screenshots/12_explore_page.png)
 
 ---
 
