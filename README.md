@@ -42,33 +42,33 @@ Per-member scoring weighted by market price. Officers record contributions oncha
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  EVE Frontier                    │
-│         (Game Client / In-game Browser)          │
-│                                                  │
-│   Player clicks gate → dApp opens in panel       │
-│   → EVE Vault signs → tx on Sui                  │
-└──────────────────────┬──────────────────────────┘
-                       │
-           ┌───────────▼───────────┐
-           │    React dApp         │
-           │  @evefrontier/dapp-kit│
-           │  14+ onchain hooks    │
-           │  6 pages + Explore    │
-           │  Vercel deployment    │
-           └───────────┬───────────┘
-                       │
-        ┌──────────────▼──────────────┐
-        │     Sui Move Contracts      │
-        │                             │
-        │  config.move      — auth    │
-        │  syndicate.move   — orgs    │
-        │  gate_policy.move — gates   │
-        │  contribution.move— economy │
-        │                             │
-        │  34/34 tests ✅              │
-        │  Deployed on Utopia         │
-        └─────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│                 EVE Frontier                  │
+│        (Game Client / In-game Browser)        │
+│                                               │
+│  Player clicks gate → dApp opens in panel     │
+│  → EVE Vault signs → tx on Sui                │
+└───────────────────────┬───────────────────────┘
+                        │
+            ┌───────────▼───────────┐
+            │      React dApp       │
+            │  @evefrontier/dapp-kit│
+            │  14+ onchain hooks    │
+            │  6 pages + Explore    │
+            │  Vercel deployment    │
+            └───────────┬───────────┘
+                        │
+         ┌──────────────▼──────────────┐
+         │     Sui Move Contracts      │
+         │                             │
+         │  config.move       — auth   │
+         │  syndicate.move    — orgs   │
+         │  gate_policy.move  — gates  │
+         │  contribution.move — econ   │
+         │                             │
+         │  34/34 tests ✅             │
+         │  Deployed on Utopia         │
+         └─────────────────────────────┘
 ```
 
 ---
