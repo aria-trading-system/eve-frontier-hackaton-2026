@@ -7,6 +7,7 @@
 OBP gives player tribes real power. Create a Syndicate, control gate access, block enemy factions, pool treasury — all enforced by Move on Sui. No Discord agreements. No trust required.
 
 **Live dApp:** [eve-frontier.vercel.app](https://eve-frontier.vercel.app)
+**Demo Video:** [Watch on YouTube](https://youtu.be/qplXl1iGg_Y)
 
 ![OBP — Homepage](screenshots/14_homepage_with_syndicate.png)
 ![OBP — Syndicate Dashboard](screenshots/07_contribution_recorded.png)
