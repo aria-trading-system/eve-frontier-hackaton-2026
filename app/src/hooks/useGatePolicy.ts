@@ -25,6 +25,7 @@ export interface GatePolicyData {
     requireProximity: boolean;
     maxDistance: number;
     blacklist: string[];
+    blockedTribes: number[];
 }
 
 // --- Fetcher ---
@@ -40,14 +41,19 @@ async function fetchGatePolicy(gateObjectId: string): Promise<GatePolicyData | n
     if (!Array.isArray(fields) || fields.length === 0) return null;
 
     // Find field whose key type is GatePolicyKey and gate_id matches
-    const gatePolicyType = `${PACKAGE_ID}::gate_policy::GatePolicyKey`;
     const matchingField = fields.find((f: any) => {
-        const keyType = f.name?.type || f.objectType || '';
+        const keyType = f.name?.type || '';
         if (!keyType.includes('GatePolicyKey')) return false;
-        // Check gate_id in key value
+        // Decode gate_id from BCS bytes (GatePolicyKey = single address field)
+        const bcs = f.name?.bcs;
+        if (bcs) {
+            const bytes = Object.values(bcs) as number[];
+            const hex = '0x' + bytes.map((b: number) => b.toString(16).padStart(2, '0')).join('');
+            return hex === gateObjectId;
+        }
+        // Fallback: try JSON value (in case SDK format changes)
         const keyValue = f.name?.value || f.name?.json || {};
-        const fieldGateId = keyValue.gate_id || '';
-        return fieldGateId === gateObjectId;
+        return (keyValue.gate_id || '') === gateObjectId;
     });
 
     if (!matchingField) return null;
@@ -72,6 +78,7 @@ async function fetchGatePolicy(gateObjectId: string): Promise<GatePolicyData | n
         requireProximity: policy.require_proximity === true || policy.require_proximity === 'true',
         maxDistance: parseInt(policy.max_distance ?? '0', 10),
         blacklist: Array.isArray(policy.blacklist) ? policy.blacklist : [],
+        blockedTribes: Array.isArray(policy.blocked_tribes) ? policy.blocked_tribes.map(Number) : [],
     };
 }
 

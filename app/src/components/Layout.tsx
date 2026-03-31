@@ -35,6 +35,7 @@ export default function Layout() {
                 </NavLink>
                 <nav className="navbar-links">
                     <NavLink to="/" end>Home</NavLink>
+                    <NavLink to="/explore">Explore</NavLink>
                     <NavLink to="/create">Create Syndicate</NavLink>
                 </nav>
                 <div className="navbar-wallet">
@@ -44,6 +45,17 @@ export default function Layout() {
             <main className="main-content">
                 <Outlet />
             </main>
+            <footer className="app-footer">
+                <div className="footer-content">
+                    <span className="footer-brand">OBP — Open Borders Protocol</span>
+                    <span className="footer-divider">·</span>
+                    <a href="https://github.com/aria-trading-system/eve-frontier-hackaton-2026" target="_blank" rel="noopener noreferrer">
+                        GitHub
+                    </a>
+                    <span className="footer-divider">·</span>
+                    <span>Built for EVE Frontier × Sui Hackathon 2026</span>
+                </div>
+            </footer>
         </div>
     );
 }

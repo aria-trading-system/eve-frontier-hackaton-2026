@@ -27,68 +27,11 @@ export default function HomePage() {
                     <Link to="/create" className="btn btn-primary">
                         Create Syndicate →
                     </Link>
-                    <a
-                        href="https://github.com/aria-trading-system/eve-frontier-hackaton-2026"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-secondary"
-                    >
-                        View on GitHub
-                    </a>
+                    <Link to="/explore" className="btn btn-secondary">
+                        Explore Syndicates
+                    </Link>
                 </div>
             </section>
-
-            {/* How it works */}
-            <section>
-                <div className="section-title">How it works</div>
-                <div className="steps">
-                    <div className="step">
-                        <div className="step-num">1</div>
-                        <div className="step-title">Create Syndicate</div>
-                        <div className="step-desc">
-                            Deploy an onchain organization. Invite members, assign officers, set public or invite-only access.
-                        </div>
-                    </div>
-                    <div className="step">
-                        <div className="step-num">2</div>
-                        <div className="step-title">Configure Gate</div>
-                        <div className="step-desc">
-                            Attach OBP to your stargate. Choose: Members Only, Toll Gate, Members Free, or Blacklist.
-                        </div>
-                    </div>
-                    <div className="step">
-                        <div className="step-num">3</div>
-                        <div className="step-title">Players Jump</div>
-                        <div className="step-desc">
-                            Members transit freely. Tolls flow to Syndicate treasury. Non-members get blocked or pay.
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            {/* Features */}
-            <section>
-                <div className="section-title">What you get</div>
-                <div className="feature-grid">
-                    <div className="feature-card">
-                        <h3>🏛️ Syndicates</h3>
-                        <p>Onchain player organizations with membership roles, governance, and trustless enforcement.</p>
-                    </div>
-                    <div className="feature-card">
-                        <h3>🚪 Gate Control</h3>
-                        <p>Four access modes for your stargates: members only, toll gate, members free, blacklist.</p>
-                    </div>
-                    <div className="feature-card">
-                        <h3>💰 Treasury</h3>
-                        <p>Pool SUI funds with your tribe. Toll fees flow automatically to the Syndicate treasury.</p>
-                    </div>
-                    <div className="feature-card">
-                        <h3>⛓️ Fully Onchain</h3>
-                        <p>Move on Sui. No servers, no database, no admin keys. Lives forever on the blockchain.</p>
-                    </div>
-                </div>
-            </section>
-
 
             {/* Your Syndicates */}
             {account && (
@@ -115,7 +58,7 @@ export default function HomePage() {
                                             {s.invite_only ? '🔒 Invite Only' : '🌐 Public'}
                                         </span>
                                     </p>
-                                    <span className="btn btn-secondary" style={{ fontSize: '0.8rem', padding: '4px 12px' }}>
+                                    <span className="btn btn-secondary" style={{ fontSize: '0.8rem', padding: '4px 12px', width: 'fit-content' }}>
                                         View →
                                     </span>
                                 </Link>
@@ -131,6 +74,59 @@ export default function HomePage() {
                     )}
                 </section>
             )}
+
+            {/* How it works */}
+            <section>
+                <div className="section-title">How it works</div>
+                <div className="steps">
+                    <div className="step">
+                        <div className="step-num">1</div>
+                        <div className="step-title">Create Syndicate</div>
+                        <div className="step-desc">
+                            Deploy an onchain organization. Invite members, assign officers, set public or invite-only access.
+                        </div>
+                    </div>
+                    <div className="step">
+                        <div className="step-num">2</div>
+                        <div className="step-title">Configure Gate</div>
+                        <div className="step-desc">
+                            Attach OBP to your stargate. Choose: Members Only, Toll Gate, Members Free, or Open Gate.
+                        </div>
+                    </div>
+                    <div className="step">
+                        <div className="step-num">3</div>
+                        <div className="step-title">Players Jump</div>
+                        <div className="step-desc">
+                            Members transit freely. Tolls flow to Syndicate treasury. Non-members get blocked or pay.
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            {/* Features */}
+            <section>
+                <div className="section-title">What you get</div>
+                <div className="feature-grid">
+                    <div className="feature-card">
+                        <h3>🏛️ Syndicates</h3>
+                        <p>Onchain player organizations with membership roles, governance, and trustless enforcement.</p>
+                    </div>
+                    <div className="feature-card">
+                        <h3>🚪 Gate Control</h3>
+                        <p>Four access modes + universal blacklist and tribe blocking. Full control over who passes.</p>
+                    </div>
+                    <div className="feature-card">
+                        <h3>💰 Treasury</h3>
+                        <p>Pool SUI funds with your tribe. Toll fees flow automatically to the Syndicate treasury.</p>
+                    </div>
+                    <div className="feature-card">
+                        <h3>⛓️ Fully Onchain</h3>
+                        <p>Move on Sui. No servers, no database, no admin keys. Lives forever on the blockchain.</p>
+                    </div>
+                </div>
+            </section>
+
+
 
         </div>
     );

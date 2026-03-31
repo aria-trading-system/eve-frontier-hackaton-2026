@@ -72,6 +72,30 @@ public fun set_rule<K: copy + drop + store, V: store + drop>(
     df::add(&mut config.id, key, value);
 }
 
+/// Set a dynamic field rule WITHOUT requiring AdminCap.
+/// public(package) — only callable from within OBP package modules.
+/// Used by gate_policy.move for permissionless gate owner operations.
+public(package) fun set_rule_open<K: copy + drop + store, V: store + drop>(
+    config: &mut ExtensionConfig,
+    key: K,
+    value: V,
+) {
+    if (df::exists_(&config.id, copy key)) {
+        let _old: V = df::remove(&mut config.id, copy key);
+    };
+    df::add(&mut config.id, key, value);
+}
+
+/// Borrow a dynamic field rule mutably WITHOUT requiring AdminCap.
+/// public(package) — only callable from within OBP package modules.
+/// Used by gate_policy.move for permissionless gate owner operations.
+public(package) fun borrow_rule_mut_open<K: copy + drop + store, V: store>(
+    config: &mut ExtensionConfig,
+    key: K,
+): &mut V {
+    df::borrow_mut(&mut config.id, key)
+}
+
 public fun remove_rule<K: copy + drop + store, V: store>(
     config: &mut ExtensionConfig,
     _: &AdminCap,
@@ -85,4 +109,3 @@ public fun remove_rule<K: copy + drop + store, V: store>(
 public fun init_for_testing(ctx: &mut TxContext) {
     init(ctx);
 }
-

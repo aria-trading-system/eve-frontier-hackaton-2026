@@ -1039,3 +1039,45 @@ a:hover { color: var(--accent-hover); }
   color: var(--text-secondary);
   line-height: 1.6;
 }
+
+
+/* ---- Syndicate cards in grid — don't stretch full width ---- */
+.feature-grid .feature-card {
+  max-width: 320px;
+}
+/* ---- Footer ---- */
+.app-footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 32px;
+  margin-top: auto;
+}
+
+.footer-content {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.footer-brand {
+  color: var(--text-secondary);
+}
+
+.footer-divider {
+  color: var(--border);
+}
+
+.footer-content a {
+  color: var(--text-muted);
+  transition: color var(--transition);
+}
+
+.footer-content a:hover {
+  color: var(--accent);
+}
+

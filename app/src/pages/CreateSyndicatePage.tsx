@@ -4,6 +4,37 @@ import { Link } from 'react-router-dom';
 import { useCreateSyndicate } from '../hooks/useCreateSyndicate';
 import type { CreateSyndicateResult } from '../hooks/useCreateSyndicate';
 
+const EXPLORER_TX  = (digest: string) => `https://suiscan.xyz/testnet/tx/${digest}`;
+const EXPLORER_OBJ = (id: string)     => `https://suiscan.xyz/testnet/object/${id}`;
+
+function CopyRow({ label, value, link }: { label: string; value: string; link?: string }) {
+    const [copied, setCopied] = useState(false);
+    const copy = () => {
+        navigator.clipboard.writeText(value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+    };
+    const short = value.slice(0, 10) + '...' + value.slice(-8);
+    return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.4rem 0', fontSize: '0.82rem' }}>
+            <span style={{ color: 'var(--text-muted)', minWidth: '120px' }}>{label}</span>
+            <span style={{ fontFamily: 'monospace', color: 'var(--text-primary)' }}>{short}</span>
+            <button
+                onClick={copy}
+                style={{ background: 'none', border: '1px solid var(--border)', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.75rem' }}
+            >
+                {copied ? '✓' : 'copy'}
+            </button>
+            {link && (
+                <a href={link} target="_blank" rel="noopener noreferrer"
+                    style={{ color: 'var(--accent)', fontSize: '0.75rem', textDecoration: 'none' }}>
+                    ↗ explorer
+                </a>
+            )}
+        </div>
+    );
+}
+
 export default function CreateSyndicatePage() {
     const { currentAccount: account } = useConnection();
     const [name, setName] = useState('');
@@ -40,9 +71,6 @@ export default function CreateSyndicatePage() {
     // Success state
     if (successData) {
         const { result } = successData;
-        const short = result.digest.length > 16
-            ? result.digest.slice(0, 8) + '...' + result.digest.slice(-8)
-            : result.digest;
         return (
             <div className="page">
                 <div className="page-header">
@@ -55,10 +83,39 @@ export default function CreateSyndicatePage() {
                         <strong style={{ color: 'var(--text-primary)' }}>{successData.name}</strong> is
                         now live on the Frontier.
                     </p>
-                    <p className="text-muted" style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>
-                        TX: <span style={{ fontFamily: 'monospace' }}>{short}</span>
-                    </p>
-                    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+
+                    {/* IDs block */}
+                    <div style={{
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border)',
+                        borderRadius: '8px',
+                        padding: '1rem 1.25rem',
+                        margin: '1.25rem auto',
+                        maxWidth: '480px',
+                        textAlign: 'left',
+                    }}>
+                        {result.syndicateId && (
+                            <CopyRow
+                                label="Syndicate ID"
+                                value={result.syndicateId}
+                                link={EXPLORER_OBJ(result.syndicateId)}
+                            />
+                        )}
+                        {result.ownerCapId && (
+                            <CopyRow
+                                label="Owner Cap"
+                                value={result.ownerCapId}
+                                link={EXPLORER_OBJ(result.ownerCapId)}
+                            />
+                        )}
+                        <CopyRow
+                            label="Transaction"
+                            value={result.digest}
+                            link={EXPLORER_TX(result.digest)}
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', marginTop: '1rem', flexWrap: 'wrap' }}>
                         {result.syndicateId ? (
                             <Link
                                 to={`/syndicate/${result.syndicateId}`}

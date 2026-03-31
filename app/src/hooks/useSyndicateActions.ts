@@ -142,6 +142,22 @@ export function useSyndicateActions(syndicateId: string, ownerCapId: string) {
         });
     }, [execute, syndicateId, ownerCapId, account]);
 
+
+    // ── join_syndicate ─────────────────────────
+    // join_syndicate(syndicate, character, clock, ctx) — public syndicate only
+    const joinSyndicate = useCallback(async (characterObjectId: string) => {
+        return execute(tx => {
+            tx.moveCall({
+                target: `${PACKAGE_ID}::${MOD_SYNDICATE}::join_syndicate`,
+                arguments: [
+                    tx.object(syndicateId),
+                    tx.object(characterObjectId),
+                    tx.object(CLOCK_OBJECT_ID),
+                ],
+            });
+        });
+    }, [execute, syndicateId]);
+
     // ── leave_syndicate ────────────────────────
     // leave_syndicate(syndicate, ctx) — no cap needed
     const leaveSyndicate = useCallback(async () => {
@@ -159,6 +175,7 @@ export function useSyndicateActions(syndicateId: string, ownerCapId: string) {
         inviteMember,
         kickMember,
         promoteToOfficer,
+        joinSyndicate,
         deposit,
         withdraw,
         leaveSyndicate,

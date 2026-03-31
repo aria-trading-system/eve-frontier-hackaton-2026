@@ -1,7 +1,7 @@
 #[test_only]
 module obp::gate_policy_tests;
 
-use obp::config::{Self, AdminCap, ExtensionConfig};
+use obp::config::{Self, ExtensionConfig};
 use obp::gate_policy;
 use obp::syndicate::{Self, Syndicate};
 
@@ -41,6 +41,9 @@ const FUEL_VOLUME: u64   = 10;
 const TOLL_FEE: u64     = 50;
 const EXPIRY_MS: u64    = 60_000;
 
+const TRIBE_ALPHA: u32 = 100;
+const TRIBE_BETA: u32  = 200;
+
 // === World + OBP setup ===
 
 fun setup_world_and_obp(ts: &mut Scenario) {
@@ -69,6 +72,10 @@ fun setup_world_and_obp(ts: &mut Scenario) {
 }
 
 fun create_character(ts: &mut Scenario, user: address, item_id: u32): ID {
+    create_character_with_tribe(ts, user, item_id, TRIBE_ALPHA)
+}
+
+fun create_character_with_tribe(ts: &mut Scenario, user: address, item_id: u32, tribe_id: u32): ID {
     ts::next_tx(ts, admin());
     let admin_acl = ts::take_shared<AdminACL>(ts);
     let mut registry = ts::take_shared<ObjectRegistry>(ts);
@@ -77,7 +84,7 @@ fun create_character(ts: &mut Scenario, user: address, item_id: u32): ID {
         &admin_acl,
         item_id,
         tenant(),
-        100,
+        tribe_id,
         user,
         string::utf8(b"pilot"),
         ts.ctx(),
@@ -206,7 +213,7 @@ fun link_and_online_gates(
     };
 }
 
-/// Configure OBP gate policy (governor holds AdminCap).
+/// Configure OBP gate policy — permissionless via OwnerCap<Gate>.
 fun configure_gate_policy(
     ts: &mut Scenario,
     char_id: ID,
@@ -219,7 +226,6 @@ fun configure_gate_policy(
     ts::next_tx(ts, user_a());
     {
         let mut ext_config = ts::take_shared<ExtensionConfig>(ts);
-        let admin_cap = ts::take_from_sender<AdminCap>(ts);
         let syndicate = ts::take_shared_by_id<Syndicate>(ts, syndicate_id);
         let mut gate_a = ts::take_shared_by_id<Gate>(ts, gate_a_id);
         let mut gate_b = ts::take_shared_by_id<Gate>(ts, gate_b_id);
@@ -235,7 +241,6 @@ fun configure_gate_policy(
         // Configure source gate (sets policy + authorizes OBPAuth)
         gate_policy::configure_gate(
             &mut ext_config,
-            &admin_cap,
             &mut gate_a,
             &cap_a,
             &syndicate,
@@ -247,7 +252,6 @@ fun configure_gate_policy(
         // Authorize destination gate (issue_jump_permit checks both gates)
         gate_policy::configure_gate(
             &mut ext_config,
-            &admin_cap,
             &mut gate_b,
             &cap_b,
             &syndicate,
@@ -262,7 +266,6 @@ fun configure_gate_policy(
         ts::return_shared(gate_b);
         ts::return_shared(syndicate);
         ts::return_shared(character);
-        ts::return_to_sender(ts, admin_cap);
         ts::return_shared(ext_config);
     };
 }
@@ -284,7 +287,9 @@ fun create_syndicate(ts: &mut Scenario, owner: address, invite_only: bool): ID {
     }
 }
 
-// === Tests ===
+// ════════════════════════════════════════════════════════════
+// EXISTING TESTS (12) — mode logic
+// ════════════════════════════════════════════════════════════
 
 #[test]
 fun test_members_only_member_gets_permit() {
@@ -298,11 +303,9 @@ fun test_members_only_member_gets_permit() {
     bring_nwn_online(&mut ts, char_id, nwn_id);
     link_and_online_gates(&mut ts, char_id, nwn_id, gate_a_id, gate_b_id);
 
-    // Syndicate: user_a is owner = member
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
     configure_gate_policy(&mut ts, char_id, gate_a_id, gate_b_id, syndicate_id, 0, 0);
 
-    // user_a (member) requests permit — no payment
     ts::next_tx(&mut ts, user_a());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -314,17 +317,9 @@ fun test_members_only_member_gets_permit() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::none(),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::none(), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
@@ -356,7 +351,6 @@ fun test_members_only_nonmember_fails() {
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
     configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 0, 0);
 
-    // user_b is NOT a member
     ts::next_tx(&mut ts, user_b());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -368,17 +362,9 @@ fun test_members_only_nonmember_fails() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::none(),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::none(), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
@@ -407,10 +393,8 @@ fun test_toll_gate_anyone_pays_gets_permit() {
     link_and_online_gates(&mut ts, char_a_id, nwn_id, gate_a_id, gate_b_id);
 
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
-    // MODE_TOLL_GATE = 1
     configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 1, TOLL_FEE);
 
-    // user_b pays exact toll
     ts::next_tx(&mut ts, user_b());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -423,21 +407,12 @@ fun test_toll_gate_anyone_pays_gets_permit() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::some(payment),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::some(payment), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
-        // Treasury should have received the toll
         assert!(syndicate::treasury_balance(&syndicate) == TOLL_FEE, 0);
 
         clk.destroy_for_testing();
@@ -476,21 +451,13 @@ fun test_toll_gate_insufficient_payment_fails() {
         let gate_b = ts::take_shared_by_id<Gate>(&ts, gate_b_id);
         let character = ts::take_shared_by_id<Character>(&ts, char_b_id);
         let clk = clock::create_for_testing(ts.ctx());
-        let payment = coin::mint_for_testing<SUI>(TOLL_FEE - 1, ts.ctx()); // one short
+        let payment = coin::mint_for_testing<SUI>(TOLL_FEE - 1, ts.ctx());
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::some(payment),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::some(payment), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
@@ -518,10 +485,8 @@ fun test_members_free_member_passes_free() {
     link_and_online_gates(&mut ts, char_id, nwn_id, gate_a_id, gate_b_id);
 
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
-    // MODE_MEMBERS_FREE = 2
     configure_gate_policy(&mut ts, char_id, gate_a_id, gate_b_id, syndicate_id, 2, TOLL_FEE);
 
-    // user_a is member — no payment
     ts::next_tx(&mut ts, user_a());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -533,21 +498,13 @@ fun test_members_free_member_passes_free() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::none(),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::none(), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
-        assert!(syndicate::treasury_balance(&syndicate) == 0, 0); // no toll taken
+        assert!(syndicate::treasury_balance(&syndicate) == 0, 0);
         clk.destroy_for_testing();
         ts::return_shared(gate_a);
         ts::return_shared(gate_b);
@@ -575,7 +532,6 @@ fun test_members_free_nonmember_pays_toll() {
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
     configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 2, TOLL_FEE);
 
-    // user_b is NOT a member — must pay
     ts::next_tx(&mut ts, user_b());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -588,17 +544,9 @@ fun test_members_free_nonmember_pays_toll() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::some(payment),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::some(payment), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
@@ -615,7 +563,7 @@ fun test_members_free_nonmember_pays_toll() {
 }
 
 #[test]
-fun test_blacklist_allows_clean_address() {
+fun test_open_gate_allows_clean_address() {
     let mut ts = ts::begin(governor());
     setup_world_and_obp(&mut ts);
 
@@ -627,10 +575,9 @@ fun test_blacklist_allows_clean_address() {
     link_and_online_gates(&mut ts, char_id, nwn_id, gate_a_id, gate_b_id);
 
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
-    // MODE_BLACKLIST = 3
+    // MODE_OPEN_GATE = 3
     configure_gate_policy(&mut ts, char_id, gate_a_id, gate_b_id, syndicate_id, 3, 0);
 
-    // user_a is NOT blacklisted — passes freely
     ts::next_tx(&mut ts, user_a());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -642,17 +589,9 @@ fun test_blacklist_allows_clean_address() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::none(),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::none(), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
@@ -669,7 +608,7 @@ fun test_blacklist_allows_clean_address() {
 
 #[test]
 #[expected_failure(abort_code = obp::gate_policy::EBlacklisted)]
-fun test_blacklist_blocks_blacklisted_address() {
+fun test_open_gate_blocks_blacklisted_address() {
     let mut ts = ts::begin(governor());
     setup_world_and_obp(&mut ts);
 
@@ -688,11 +627,15 @@ fun test_blacklist_blocks_blacklisted_address() {
     ts::next_tx(&mut ts, user_a());
     {
         let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
-        let admin_cap = ts::take_from_sender<AdminCap>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_a_id);
         let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
-        gate_policy::add_to_blacklist(&mut ext_config, &admin_cap, &gate_a, user_b());
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
+        );
+        gate_policy::add_to_blacklist(&mut ext_config, &gate_a, &cap_a, user_b());
+        character.return_owner_cap(cap_a, receipt_a);
         ts::return_shared(gate_a);
-        ts::return_to_sender(&ts, admin_cap);
+        ts::return_shared(character);
         ts::return_shared(ext_config);
     };
 
@@ -708,17 +651,9 @@ fun test_blacklist_blocks_blacklisted_address() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::none(),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::none(), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
@@ -749,7 +684,6 @@ fun test_toll_gate_change_returned_to_caller() {
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
     configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 1, TOLL_FEE);
 
-    // user_b pays TOLL_FEE + 100 (overpay — change should be returned)
     ts::next_tx(&mut ts, user_b());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -762,21 +696,12 @@ fun test_toll_gate_change_returned_to_caller() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::some(payment),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::some(payment), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
-        // Treasury gets exactly TOLL_FEE
         assert!(syndicate::treasury_balance(&syndicate) == TOLL_FEE, 0);
 
         clk.destroy_for_testing();
@@ -787,7 +712,6 @@ fun test_toll_gate_change_returned_to_caller() {
         ts::return_shared(ext_config);
     };
 
-    // Change coin (100) should be in user_b's inventory
     ts::next_tx(&mut ts, user_b());
     {
         let change = ts::take_from_sender<coin::Coin<SUI>>(&ts);
@@ -812,7 +736,6 @@ fun test_no_gate_policy_fails() {
     link_and_online_gates(&mut ts, char_id, nwn_id, gate_a_id, gate_b_id);
 
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
-    // Deliberately skip configure_gate_policy — no GatePolicy set
 
     ts::next_tx(&mut ts, user_a());
     {
@@ -825,17 +748,9 @@ fun test_no_gate_policy_fails() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::none(),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::none(), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
@@ -864,18 +779,21 @@ fun test_remove_from_blacklist() {
     link_and_online_gates(&mut ts, char_a_id, nwn_id, gate_a_id, gate_b_id);
 
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
-    // MODE_BLACKLIST = 3
     configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 3, 0);
 
     // Add user_b to blacklist
     ts::next_tx(&mut ts, user_a());
     {
         let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
-        let admin_cap = ts::take_from_sender<AdminCap>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_a_id);
         let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
-        gate_policy::add_to_blacklist(&mut ext_config, &admin_cap, &gate_a, user_b());
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
+        );
+        gate_policy::add_to_blacklist(&mut ext_config, &gate_a, &cap_a, user_b());
+        character.return_owner_cap(cap_a, receipt_a);
         ts::return_shared(gate_a);
-        ts::return_to_sender(&ts, admin_cap);
+        ts::return_shared(character);
         ts::return_shared(ext_config);
     };
 
@@ -883,11 +801,15 @@ fun test_remove_from_blacklist() {
     ts::next_tx(&mut ts, user_a());
     {
         let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
-        let admin_cap = ts::take_from_sender<AdminCap>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_a_id);
         let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
-        gate_policy::remove_from_blacklist(&mut ext_config, &admin_cap, &gate_a, user_b());
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
+        );
+        gate_policy::remove_from_blacklist(&mut ext_config, &gate_a, &cap_a, user_b());
+        character.return_owner_cap(cap_a, receipt_a);
         ts::return_shared(gate_a);
-        ts::return_to_sender(&ts, admin_cap);
+        ts::return_shared(character);
         ts::return_shared(ext_config);
     };
 
@@ -903,17 +825,9 @@ fun test_remove_from_blacklist() {
 
         let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::none(),
-            option::none(),
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::none(), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
         ts::return_shared(server_registry);
 
@@ -944,23 +858,24 @@ fun test_proximity_required_proof_missing_fails() {
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
     configure_gate_policy(&mut ts, char_id, gate_a_id, gate_b_id, syndicate_id, 0, 0);
 
-    // Enable proximity on gate_a
+    // Enable proximity
     ts::next_tx(&mut ts, user_a());
     {
         let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
-        let admin_cap = ts::take_from_sender<AdminCap>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_id);
         let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
-        gate_policy::configure_gate_proximity(
-            &mut ext_config, &admin_cap, &gate_a,
-            true, // require_proximity = true
-            1_000_000,
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
         );
+        gate_policy::configure_gate_proximity(
+            &mut ext_config, &gate_a, &cap_a, true, 1_000_000,
+        );
+        character.return_owner_cap(cap_a, receipt_a);
         ts::return_shared(gate_a);
-        ts::return_to_sender(&ts, admin_cap);
+        ts::return_shared(character);
         ts::return_shared(ext_config);
     };
 
-    // user_a requests permit with no proof — should fail with EProofRequired
     ts::next_tx(&mut ts, user_a());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -972,17 +887,9 @@ fun test_proximity_required_proof_missing_fails() {
         let clk = clock::create_for_testing(ts.ctx());
 
         gate_policy::request_jump_permit(
-            &ext_config,
-            &mut syndicate,
-            &gate_a,
-            &gate_b,
-            &character,
-            option::none(),
-            option::none(), // no proof → should abort
-            &server_registry,
-            gate::location(&gate_a),
-            &clk,
-            ts.ctx(),
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::none(), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
         );
 
         clk.destroy_for_testing();
@@ -1012,7 +919,6 @@ fun test_configure_gate_proximity() {
     let syndicate_id = create_syndicate(&mut ts, user_a(), false);
     configure_gate_policy(&mut ts, char_id, gate_a_id, gate_b_id, syndicate_id, 0, 0);
 
-    // Proximity is false by default
     ts::next_tx(&mut ts, user_a());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -1023,22 +929,23 @@ fun test_configure_gate_proximity() {
         ts::return_shared(ext_config);
     };
 
-    // Enable proximity
     ts::next_tx(&mut ts, user_a());
     {
         let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
-        let admin_cap = ts::take_from_sender<AdminCap>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_id);
         let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
-        gate_policy::configure_gate_proximity(
-            &mut ext_config, &admin_cap, &gate_a,
-            true, 500_000,
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
         );
+        gate_policy::configure_gate_proximity(
+            &mut ext_config, &gate_a, &cap_a, true, 500_000,
+        );
+        character.return_owner_cap(cap_a, receipt_a);
         ts::return_shared(gate_a);
-        ts::return_to_sender(&ts, admin_cap);
+        ts::return_shared(character);
         ts::return_shared(ext_config);
     };
 
-    // Verify it was set
     ts::next_tx(&mut ts, user_a());
     {
         let ext_config = ts::take_shared<ExtensionConfig>(&ts);
@@ -1046,6 +953,361 @@ fun test_configure_gate_proximity() {
         assert!(gate_policy::gate_require_proximity(&ext_config, &gate_a), 0);
         assert!(gate_policy::gate_max_distance(&ext_config, &gate_a) == 500_000, 1);
         ts::return_shared(gate_a);
+        ts::return_shared(ext_config);
+    };
+
+    ts::end(ts);
+}
+
+// ════════════════════════════════════════════════════════════
+// NEW TESTS — Universal Blacklist (works across ALL modes)
+// ════════════════════════════════════════════════════════════
+
+#[test]
+#[expected_failure(abort_code = obp::gate_policy::EBlacklisted)]
+fun test_universal_blacklist_blocks_in_toll_gate() {
+    let mut ts = ts::begin(governor());
+    setup_world_and_obp(&mut ts);
+
+    let char_a_id = create_character(&mut ts, user_a(), 330);
+    let char_b_id = create_character(&mut ts, user_b(), 331);
+    let nwn_id    = create_network_node(&mut ts, char_a_id);
+    let gate_a_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_1);
+    let gate_b_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_2);
+    bring_nwn_online(&mut ts, char_a_id, nwn_id);
+    link_and_online_gates(&mut ts, char_a_id, nwn_id, gate_a_id, gate_b_id);
+
+    let syndicate_id = create_syndicate(&mut ts, user_a(), false);
+    // MODE_TOLL_GATE = 1 — normally anyone can pay to pass
+    configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 1, TOLL_FEE);
+
+    // Blacklist user_b — should block even in toll gate mode
+    ts::next_tx(&mut ts, user_a());
+    {
+        let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_a_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
+        );
+        gate_policy::add_to_blacklist(&mut ext_config, &gate_a, &cap_a, user_b());
+        character.return_owner_cap(cap_a, receipt_a);
+        ts::return_shared(gate_a);
+        ts::return_shared(character);
+        ts::return_shared(ext_config);
+    };
+
+    // user_b tries to jump WITH payment — should still fail (blacklisted)
+    ts::next_tx(&mut ts, user_b());
+    {
+        let ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut syndicate = ts::take_shared_by_id<Syndicate>(&ts, syndicate_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let gate_b = ts::take_shared_by_id<Gate>(&ts, gate_b_id);
+        let character = ts::take_shared_by_id<Character>(&ts, char_b_id);
+        let clk = clock::create_for_testing(ts.ctx());
+        let payment = coin::mint_for_testing<SUI>(TOLL_FEE, ts.ctx());
+
+        let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
+        gate_policy::request_jump_permit(
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::some(payment), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
+        );
+        ts::return_shared(server_registry);
+
+        clk.destroy_for_testing();
+        ts::return_shared(gate_a);
+        ts::return_shared(gate_b);
+        ts::return_shared(character);
+        ts::return_shared(syndicate);
+        ts::return_shared(ext_config);
+    };
+
+    ts::end(ts);
+}
+
+#[test]
+#[expected_failure(abort_code = obp::gate_policy::EBlacklisted)]
+fun test_universal_blacklist_blocks_in_members_free() {
+    let mut ts = ts::begin(governor());
+    setup_world_and_obp(&mut ts);
+
+    let char_a_id = create_character(&mut ts, user_a(), 332);
+    let char_b_id = create_character(&mut ts, user_b(), 333);
+    let nwn_id    = create_network_node(&mut ts, char_a_id);
+    let gate_a_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_1);
+    let gate_b_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_2);
+    bring_nwn_online(&mut ts, char_a_id, nwn_id);
+    link_and_online_gates(&mut ts, char_a_id, nwn_id, gate_a_id, gate_b_id);
+
+    let syndicate_id = create_syndicate(&mut ts, user_a(), false);
+    // MODE_MEMBERS_FREE = 2 — non-members can pay to pass
+    configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 2, TOLL_FEE);
+
+    // Blacklist user_b
+    ts::next_tx(&mut ts, user_a());
+    {
+        let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_a_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
+        );
+        gate_policy::add_to_blacklist(&mut ext_config, &gate_a, &cap_a, user_b());
+        character.return_owner_cap(cap_a, receipt_a);
+        ts::return_shared(gate_a);
+        ts::return_shared(character);
+        ts::return_shared(ext_config);
+    };
+
+    // user_b tries to jump with payment — blocked (blacklist is universal)
+    ts::next_tx(&mut ts, user_b());
+    {
+        let ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut syndicate = ts::take_shared_by_id<Syndicate>(&ts, syndicate_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let gate_b = ts::take_shared_by_id<Gate>(&ts, gate_b_id);
+        let character = ts::take_shared_by_id<Character>(&ts, char_b_id);
+        let clk = clock::create_for_testing(ts.ctx());
+        let payment = coin::mint_for_testing<SUI>(TOLL_FEE, ts.ctx());
+
+        let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
+        gate_policy::request_jump_permit(
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::some(payment), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
+        );
+        ts::return_shared(server_registry);
+
+        clk.destroy_for_testing();
+        ts::return_shared(gate_a);
+        ts::return_shared(gate_b);
+        ts::return_shared(character);
+        ts::return_shared(syndicate);
+        ts::return_shared(ext_config);
+    };
+
+    ts::end(ts);
+}
+
+// ════════════════════════════════════════════════════════════
+// NEW TESTS — Tribe Blocking
+// ════════════════════════════════════════════════════════════
+
+#[test]
+#[expected_failure(abort_code = obp::gate_policy::ETribeBlocked)]
+fun test_tribe_blocked_denied() {
+    let mut ts = ts::begin(governor());
+    setup_world_and_obp(&mut ts);
+
+    // user_a = tribe ALPHA (100), user_b = tribe BETA (200)
+    let char_a_id = create_character_with_tribe(&mut ts, user_a(), 340, TRIBE_ALPHA);
+    let char_b_id = create_character_with_tribe(&mut ts, user_b(), 341, TRIBE_BETA);
+    let nwn_id    = create_network_node(&mut ts, char_a_id);
+    let gate_a_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_1);
+    let gate_b_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_2);
+    bring_nwn_online(&mut ts, char_a_id, nwn_id);
+    link_and_online_gates(&mut ts, char_a_id, nwn_id, gate_a_id, gate_b_id);
+
+    let syndicate_id = create_syndicate(&mut ts, user_a(), false);
+    // MODE_TOLL_GATE — normally anyone pays to pass
+    configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 1, TOLL_FEE);
+
+    // Block tribe BETA (200) — entire faction blocked
+    ts::next_tx(&mut ts, user_a());
+    {
+        let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_a_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
+        );
+        gate_policy::add_blocked_tribe(&mut ext_config, &gate_a, &cap_a, TRIBE_BETA);
+        character.return_owner_cap(cap_a, receipt_a);
+        ts::return_shared(gate_a);
+        ts::return_shared(character);
+        ts::return_shared(ext_config);
+    };
+
+    // user_b (tribe BETA) tries to jump — should fail with ETribeBlocked
+    ts::next_tx(&mut ts, user_b());
+    {
+        let ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut syndicate = ts::take_shared_by_id<Syndicate>(&ts, syndicate_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let gate_b = ts::take_shared_by_id<Gate>(&ts, gate_b_id);
+        let character = ts::take_shared_by_id<Character>(&ts, char_b_id);
+        let clk = clock::create_for_testing(ts.ctx());
+        let payment = coin::mint_for_testing<SUI>(TOLL_FEE, ts.ctx());
+
+        let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
+        gate_policy::request_jump_permit(
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::some(payment), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
+        );
+        ts::return_shared(server_registry);
+
+        clk.destroy_for_testing();
+        ts::return_shared(gate_a);
+        ts::return_shared(gate_b);
+        ts::return_shared(character);
+        ts::return_shared(syndicate);
+        ts::return_shared(ext_config);
+    };
+
+    ts::end(ts);
+}
+
+#[test]
+fun test_tribe_not_blocked_passes() {
+    let mut ts = ts::begin(governor());
+    setup_world_and_obp(&mut ts);
+
+    // Both tribes exist, only BETA is blocked
+    let char_a_id = create_character_with_tribe(&mut ts, user_a(), 342, TRIBE_ALPHA);
+    let char_b_id = create_character_with_tribe(&mut ts, user_b(), 343, TRIBE_ALPHA);
+    let nwn_id    = create_network_node(&mut ts, char_a_id);
+    let gate_a_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_1);
+    let gate_b_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_2);
+    bring_nwn_online(&mut ts, char_a_id, nwn_id);
+    link_and_online_gates(&mut ts, char_a_id, nwn_id, gate_a_id, gate_b_id);
+
+    let syndicate_id = create_syndicate(&mut ts, user_a(), false);
+    configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 1, TOLL_FEE);
+
+    // Block tribe BETA (200) — user_b is ALPHA, should NOT be blocked
+    ts::next_tx(&mut ts, user_a());
+    {
+        let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_a_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
+        );
+        gate_policy::add_blocked_tribe(&mut ext_config, &gate_a, &cap_a, TRIBE_BETA);
+        character.return_owner_cap(cap_a, receipt_a);
+        ts::return_shared(gate_a);
+        ts::return_shared(character);
+        ts::return_shared(ext_config);
+    };
+
+    // user_b (tribe ALPHA) pays toll — should pass fine
+    ts::next_tx(&mut ts, user_b());
+    {
+        let ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut syndicate = ts::take_shared_by_id<Syndicate>(&ts, syndicate_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let gate_b = ts::take_shared_by_id<Gate>(&ts, gate_b_id);
+        let character = ts::take_shared_by_id<Character>(&ts, char_b_id);
+        let clk = clock::create_for_testing(ts.ctx());
+        let payment = coin::mint_for_testing<SUI>(TOLL_FEE, ts.ctx());
+
+        let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
+        gate_policy::request_jump_permit(
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::some(payment), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
+        );
+        ts::return_shared(server_registry);
+
+        assert!(syndicate::treasury_balance(&syndicate) == TOLL_FEE, 0);
+
+        clk.destroy_for_testing();
+        ts::return_shared(gate_a);
+        ts::return_shared(gate_b);
+        ts::return_shared(character);
+        ts::return_shared(syndicate);
+        ts::return_shared(ext_config);
+    };
+
+    ts::end(ts);
+}
+
+#[test]
+fun test_add_remove_blocked_tribe() {
+    let mut ts = ts::begin(governor());
+    setup_world_and_obp(&mut ts);
+
+    let char_a_id = create_character_with_tribe(&mut ts, user_a(), 344, TRIBE_ALPHA);
+    let char_b_id = create_character_with_tribe(&mut ts, user_b(), 345, TRIBE_BETA);
+    let nwn_id    = create_network_node(&mut ts, char_a_id);
+    let gate_a_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_1);
+    let gate_b_id = create_gate(&mut ts, char_a_id, nwn_id, GATE_ITEM_ID_2);
+    bring_nwn_online(&mut ts, char_a_id, nwn_id);
+    link_and_online_gates(&mut ts, char_a_id, nwn_id, gate_a_id, gate_b_id);
+
+    let syndicate_id = create_syndicate(&mut ts, user_a(), false);
+    configure_gate_policy(&mut ts, char_a_id, gate_a_id, gate_b_id, syndicate_id, 3, 0);
+
+    // Block tribe BETA
+    ts::next_tx(&mut ts, user_a());
+    {
+        let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_a_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
+        );
+        gate_policy::add_blocked_tribe(&mut ext_config, &gate_a, &cap_a, TRIBE_BETA);
+        character.return_owner_cap(cap_a, receipt_a);
+        ts::return_shared(gate_a);
+        ts::return_shared(character);
+        ts::return_shared(ext_config);
+    };
+
+    // Verify blocked_tribes view returns TRIBE_BETA
+    ts::next_tx(&mut ts, user_a());
+    {
+        let ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let tribes = gate_policy::gate_blocked_tribes(&ext_config, &gate_a);
+        assert!(tribes.length() == 1, 0);
+        assert!(*tribes.borrow(0) == TRIBE_BETA, 1);
+        ts::return_shared(gate_a);
+        ts::return_shared(ext_config);
+    };
+
+    // Unblock tribe BETA
+    ts::next_tx(&mut ts, user_a());
+    {
+        let mut ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut character = ts::take_shared_by_id<Character>(&ts, char_a_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let (cap_a, receipt_a) = character.borrow_owner_cap<Gate>(
+            ts::receiving_ticket_by_id<OwnerCap<Gate>>(gate_a.owner_cap_id()), ts.ctx()
+        );
+        gate_policy::remove_blocked_tribe(&mut ext_config, &gate_a, &cap_a, TRIBE_BETA);
+        character.return_owner_cap(cap_a, receipt_a);
+        ts::return_shared(gate_a);
+        ts::return_shared(character);
+        ts::return_shared(ext_config);
+    };
+
+    // user_b (tribe BETA) can now pass
+    ts::next_tx(&mut ts, user_b());
+    {
+        let ext_config = ts::take_shared<ExtensionConfig>(&ts);
+        let mut syndicate = ts::take_shared_by_id<Syndicate>(&ts, syndicate_id);
+        let gate_a = ts::take_shared_by_id<Gate>(&ts, gate_a_id);
+        let gate_b = ts::take_shared_by_id<Gate>(&ts, gate_b_id);
+        let character = ts::take_shared_by_id<Character>(&ts, char_b_id);
+        let clk = clock::create_for_testing(ts.ctx());
+
+        let server_registry = ts::take_shared<ServerAddressRegistry>(&ts);
+        gate_policy::request_jump_permit(
+            &ext_config, &mut syndicate, &gate_a, &gate_b, &character,
+            option::none(), option::none(),
+            &server_registry, gate::location(&gate_a), &clk, ts.ctx(),
+        );
+        ts::return_shared(server_registry);
+
+        clk.destroy_for_testing();
+        ts::return_shared(gate_a);
+        ts::return_shared(gate_b);
+        ts::return_shared(character);
+        ts::return_shared(syndicate);
         ts::return_shared(ext_config);
     };
 

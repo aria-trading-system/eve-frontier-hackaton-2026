@@ -2,11 +2,11 @@
 # This file contains metadata about published versions of this package in different environments
 # This file SHOULD be committed to source control
 
-[published.testnet]
+[published.testnet_utopia]
 chain-id = "4c78adac"
-published-at = "0xaf2d6405edac931817a0bafabd7bbf6543681a4c18d2987440514c2598891d67"
-original-id = "0xaf2d6405edac931817a0bafabd7bbf6543681a4c18d2987440514c2598891d67"
+published-at = "0x7927bfcf73d3cc18e3095d757ffb160fe1f9f16f6ee54cb5a3f1d66405e9091b"
+original-id = "0x7927bfcf73d3cc18e3095d757ffb160fe1f9f16f6ee54cb5a3f1d66405e9091b"
 version = 1
 toolchain-version = "1.67.1"
 build-config = { flavor = "sui", edition = "2024" }
-upgrade-capability = "0xff17130edd96aef1e08d7c34a9cd19feda98ce09f581c43e970245457f111abc"
+upgrade-capability = "0x67e7fb10d0b2ecfdb3954797f3cfe5ece1d10d8936281a26c66ad09e90477787"

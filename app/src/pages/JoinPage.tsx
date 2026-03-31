@@ -1,33 +1,54 @@
 import { useParams, Link } from 'react-router-dom';
 import { useConnection } from '@evefrontier/dapp-kit';
-
-// Mock data — replace with useSyndicate hook after Utopia deploy
-const MOCK_SYNDICATE = {
-    id: '0xabc123...def456',
-    name: 'Void Runners',
-    invite_only: false,
-    member_count: 3,
-    treasury: 2450000000,
-    created_at: 1741000000000,
-    owner: '0xde1693bf0119c2e37b1cca89b6417b80fe0ce4ebd6b05c42bf004334d7f07733',
-    gates: 2,
-};
+import { useSyndicate } from '../hooks/useSyndicate';
+import { useSyndicateActions } from '../hooks/useSyndicateActions';
+import { useCharacter } from '../hooks/useCharacter';
+import { useState } from 'react';
 
 function formatSUI(mist: number) {
     return (mist / 1_000_000_000).toFixed(3);
 }
 
 function formatAddress(addr: string) {
+    if (!addr || addr.length < 18) return addr;
     return `${addr.slice(0, 10)}...${addr.slice(-8)}`;
 }
 
 export default function JoinPage() {
     const { id } = useParams();
+    const syndicateId = id || '';
     const { currentAccount: account } = useConnection();
-    const syndicate = MOCK_SYNDICATE;
+    const { syndicate, members, isLoading, error } = useSyndicate(syndicateId);
+    const { joinSyndicate, isPending: joinPending, error: joinError } = useSyndicateActions(syndicateId, '');
+    const { characterObjectId, isLoading: characterLoading } = useCharacter(account?.address);
+    const [joinSuccess, setJoinSuccess] = useState(false);
+    const [copied, setCopied] = useState(false);
 
-    const isMember = false; // TODO: check onchain after Utopia
-    const alreadyJoined = isMember;
+    const isMember = account ? members.some(m => m.address === account.address) : false;
+    const ownerAddress = members.find(m => m.role === 2)?.address || '';
+
+    if (isLoading) {
+        return (
+            <div className="page">
+                <div className="page-header"><Link to="/" className="back-link">← Home</Link></div>
+                <div className="empty-state" style={{ padding: 60 }}>Loading syndicate...</div>
+            </div>
+        );
+    }
+
+    if (error || !syndicate) {
+        return (
+            <div className="page">
+                <div className="page-header"><Link to="/" className="back-link">← Home</Link></div>
+                <div className="empty-state" style={{ padding: 60 }}>
+                    <div>Syndicate not found</div>
+                    <div className="text-muted" style={{ fontSize: '0.85rem', marginTop: 8 }}>
+                        {error ? String(error) : 'Check the link and try again'}
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="page">
@@ -52,7 +73,7 @@ export default function JoinPage() {
                                 </span>
                             </div>
                             <div className="address" style={{ marginTop: 6 }}>
-                                {id || syndicate.id}
+                                {syndicateId}
                             </div>
                         </div>
                     </div>
@@ -69,21 +90,20 @@ export default function JoinPage() {
                             <span className="stat-value">{formatSUI(syndicate.treasury)}</span>
                             <span className="stat-label">SUI Treasury</span>
                         </div>
-                        <div className="stat">
-                            <span className="stat-value">{syndicate.gates}</span>
-                            <span className="stat-label">Gates</span>
-                        </div>
                     </div>
 
                     <div className="divider" />
 
                     {/* Owner */}
-                    <div className="policy-row" style={{ padding: '16px 0' }}>
-                        <span className="policy-label">Owner</span>
-                        <span className="address">{formatAddress(syndicate.owner)}</span>
-                    </div>
-
-                    <div className="divider" />
+                    {ownerAddress && (
+                        <>
+                            <div className="policy-row" style={{ padding: '16px 0' }}>
+                                <span className="policy-label">Owner</span>
+                                <span className="address">{formatAddress(ownerAddress)}</span>
+                            </div>
+                            <div className="divider" />
+                        </>
+                    )}
 
                     {/* Join action */}
                     <div className="join-action">
@@ -97,13 +117,23 @@ export default function JoinPage() {
                                     <span>Use the Connect Wallet button in the top right corner</span>
                                 </div>
                             </>
-                        ) : alreadyJoined ? (
+                        ) : joinSuccess ? (
+                            <>
+                                <div className="notice notice-info" style={{ background: 'var(--success-dim)', borderColor: 'rgba(34,197,94,0.2)' }}>
+                                    <span>✅</span>
+                                    <span>Welcome! You are now a member of {syndicate.name}</span>
+                                </div>
+                                <Link to={`/syndicate/${syndicateId}`} className="btn btn-primary" style={{ marginTop: 12 }}>
+                                    Go to Dashboard →
+                                </Link>
+                            </>
+                        ) : isMember ? (
                             <>
                                 <div className="notice notice-info" style={{ background: 'var(--success-dim)', borderColor: 'rgba(34,197,94,0.2)' }}>
                                     <span>✅</span>
                                     <span>You are already a member of this Syndicate</span>
                                 </div>
-                                <Link to={`/syndicate/${id}`} className="btn btn-primary" style={{ marginTop: 12 }}>
+                                <Link to={`/syndicate/${syndicateId}`} className="btn btn-primary" style={{ marginTop: 12 }}>
                                     Go to Dashboard →
                                 </Link>
                             </>
@@ -115,10 +145,6 @@ export default function JoinPage() {
                                         This Syndicate is invite-only. Contact the owner to request an invitation.
                                     </span>
                                 </div>
-                                <div className="owner-display" style={{ marginTop: 12 }}>
-                                    <span className="policy-label">Owner address</span>
-                                    <span className="address">{formatAddress(syndicate.owner)}</span>
-                                </div>
                             </>
                         ) : (
                             <>
@@ -128,13 +154,21 @@ export default function JoinPage() {
                                 <button
                                     className="btn btn-primary"
                                     style={{ width: '100%', justifyContent: 'center', padding: '14px' }}
-                                    onClick={() => alert('Coming after Utopia deploy — March 11')}
+                                    disabled={joinPending || !characterObjectId}
+                                    onClick={async () => {
+                                        if (!characterObjectId) return;
+                                        const res = await joinSyndicate(characterObjectId);
+                                        if (res) setJoinSuccess(true);
+                                    }}
                                 >
-                                    Join Syndicate →
+                                    {joinPending ? 'Joining...' : !characterObjectId && !characterLoading ? 'No Character Found' : 'Join Syndicate →'}
                                 </button>
+                                {joinError && (
+                                    <div style={{ color: 'var(--danger)', fontSize: '0.8rem', marginTop: 8 }}>{joinError}</div>
+                                )}
                                 <div className="notice notice-info" style={{ marginTop: 12 }}>
-                                    <span>⏳</span>
-                                    <span>Live on Utopia — March 11. Transaction will be submitted to your wallet.</span>
+                                    <span>🔗</span>
+                                    <span>Transaction will be signed by your connected EVE Vault wallet.</span>
                                 </div>
                             </>
                         )}
@@ -176,6 +210,15 @@ export default function JoinPage() {
                                 </div>
                             </div>
                             <div className="info-item">
+                                <span className="info-icon">💰</span>
+                                <div>
+                                    <div className="info-item-title">Contribution Economy</div>
+                                    <div className="info-item-desc">
+                                        Your contributions are tracked onchain — treasury distributes proportionally
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="info-item">
                                 <span className="info-icon">🚀</span>
                                 <div>
                                     <div className="info-item-title">Leave Anytime</div>
@@ -193,14 +236,18 @@ export default function JoinPage() {
                             <span className="card-title">Share this link</span>
                         </div>
                         <div className="form">
-                            <div className="input" style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                            <div className="input" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', wordBreak: 'break-all', overflow: 'hidden' }}>
                                 {window.location.href}
                             </div>
                             <button
                                 className="btn btn-secondary"
-                                onClick={() => navigator.clipboard.writeText(window.location.href)}
+                                onClick={() => {
+                                    navigator.clipboard.writeText(window.location.href);
+                                    setCopied(true);
+                                    setTimeout(() => setCopied(false), 2000);
+                                }}
                             >
-                                Copy Link
+                                {copied ? '✅ Copied' : 'Copy Link'}
                             </button>
                         </div>
                     </div>

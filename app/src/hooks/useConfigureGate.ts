@@ -1,12 +1,12 @@
 /**
  * useConfigureGate — write hook for configuring gate policy via zkLogin.
  *
- * PTB pattern (from configure-gate.ts):
- *   1. character::borrow_owner_cap<Gate> → gateOwnerCap + receipt
- *   2. gate_policy::configure_gate(config, adminCap, gate, ownerCap, syndicate, mode, toll, expiry)
- *   3. character::return_owner_cap<Gate> → return cap + receipt
+ * PTB pattern follows CCP's authorise-gate-extension.ts exactly:
+ *   1. borrow_owner_cap<Gate>(character, owner_cap) → [cap, receipt]
+ *   2. configure_gate(config, gate, cap, syndicate, mode, toll, expiry)
+ *   3. return_owner_cap<Gate>(character, cap, receipt)
  *
- * Signed via EVE Vault (zkLogin) through dAppKit.signAndExecuteTransaction.
+ * All objects passed via tx.object() — Sui SDK resolves shared/receiving automatically.
  */
 import { useState, useCallback } from 'react';
 import { useDAppKit } from '@mysten/dapp-kit-react';
@@ -14,24 +14,62 @@ import { Transaction } from '@mysten/sui/transactions';
 import {
     PACKAGE_ID,
     EXTENSION_CONFIG_ID,
-    ADMIN_CAP_ID,
     WORLD_PACKAGE_ID,
+    RPC_URL,
     MOD_GATE_POLICY,
 } from '../lib/constants';
 
-// --- Types ---
-
 export interface ConfigureGateParams {
     gateObjectId: string;
-    gateOwnerCapId: string;
     characterObjectId: string;
     syndicateId: string;
-    mode: number;        // 0-3
-    tollMist: number;    // in MIST (0 if not applicable)
-    expiryMs: number;    // permit duration in ms
+    mode: number;
+    tollMist: number;
+    expiryMs: number;
 }
 
-// --- Hook ---
+async function fetchOwnerCapId(gateObjectId: string): Promise<string> {
+    const res = await fetch(RPC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            jsonrpc: '2.0', id: 1,
+            method: 'sui_getObject',
+            params: [gateObjectId, { showContent: true }],
+        }),
+    });
+    const data = await res.json();
+    const ownerCapId = data?.result?.data?.content?.fields?.owner_cap_id;
+    if (!ownerCapId) throw new Error(`Cannot read owner_cap_id from Gate`);
+    return ownerCapId;
+}
+
+/** Helper: build a PTB that borrows OwnerCap, calls one function, returns cap. */
+function buildOwnerCapTx(
+    tx: Transaction,
+    characterObjectId: string,
+    ownerCapId: string,
+): { gateOwnerCap: any; returnReceipt: any } {
+    const [gateOwnerCap, returnReceipt] = tx.moveCall({
+        target: `${WORLD_PACKAGE_ID}::character::borrow_owner_cap`,
+        typeArguments: [`${WORLD_PACKAGE_ID}::gate::Gate`],
+        arguments: [tx.object(characterObjectId), tx.object(ownerCapId)],
+    });
+    return { gateOwnerCap, returnReceipt };
+}
+
+function returnOwnerCap(
+    tx: Transaction,
+    characterObjectId: string,
+    gateOwnerCap: any,
+    returnReceipt: any,
+) {
+    tx.moveCall({
+        target: `${WORLD_PACKAGE_ID}::character::return_owner_cap`,
+        typeArguments: [`${WORLD_PACKAGE_ID}::gate::Gate`],
+        arguments: [tx.object(characterObjectId), gateOwnerCap, returnReceipt],
+    });
+}
 
 export function useConfigureGate() {
     const dAppKit = useDAppKit();
@@ -43,24 +81,14 @@ export function useConfigureGate() {
         setError(null);
 
         try {
+            const ownerCapId = await fetchOwnerCapId(params.gateObjectId);
             const tx = new Transaction();
+            const { gateOwnerCap, returnReceipt } = buildOwnerCapTx(tx, params.characterObjectId, ownerCapId);
 
-            // Step 1: borrow_owner_cap<Gate> from Character
-            const [gateOwnerCap, receipt] = tx.moveCall({
-                target: `${WORLD_PACKAGE_ID}::character::borrow_owner_cap`,
-                typeArguments: [`${WORLD_PACKAGE_ID}::gate::Gate`],
-                arguments: [
-                    tx.object(params.characterObjectId),
-                    tx.object(params.gateOwnerCapId),
-                ],
-            });
-
-            // Step 2: configure_gate
             tx.moveCall({
                 target: `${PACKAGE_ID}::${MOD_GATE_POLICY}::configure_gate`,
                 arguments: [
                     tx.object(EXTENSION_CONFIG_ID),
-                    tx.object(ADMIN_CAP_ID),
                     tx.object(params.gateObjectId),
                     gateOwnerCap,
                     tx.object(params.syndicateId),
@@ -70,22 +98,8 @@ export function useConfigureGate() {
                 ],
             });
 
-            // Step 3: return_owner_cap<Gate>
-            tx.moveCall({
-                target: `${WORLD_PACKAGE_ID}::character::return_owner_cap`,
-                typeArguments: [`${WORLD_PACKAGE_ID}::gate::Gate`],
-                arguments: [
-                    tx.object(params.characterObjectId),
-                    gateOwnerCap,
-                    receipt,
-                ],
-            });
-
-            const result = await dAppKit.signAndExecuteTransaction({
-                transaction: tx,
-            });
-
-            return result;
+            returnOwnerCap(tx, params.characterObjectId, gateOwnerCap, returnReceipt);
+            return await dAppKit.signAndExecuteTransaction({ transaction: tx });
         } catch (err) {
             const error = err instanceof Error ? err : new Error(String(err));
             setError(error);
@@ -95,5 +109,130 @@ export function useConfigureGate() {
         }
     }, [dAppKit]);
 
-    return { configureGate, isLoading, error };
+    // === Address Blacklist ===
+
+    const addToBlacklist = useCallback(async (
+        gateObjectId: string, characterObjectId: string, addr: string
+    ) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const ownerCapId = await fetchOwnerCapId(gateObjectId);
+            const tx = new Transaction();
+            const { gateOwnerCap, returnReceipt } = buildOwnerCapTx(tx, characterObjectId, ownerCapId);
+            tx.moveCall({
+                target: `${PACKAGE_ID}::${MOD_GATE_POLICY}::add_to_blacklist`,
+                arguments: [
+                    tx.object(EXTENSION_CONFIG_ID),
+                    tx.object(gateObjectId),
+                    gateOwnerCap,
+                    tx.pure.address(addr),
+                ],
+            });
+            returnOwnerCap(tx, characterObjectId, gateOwnerCap, returnReceipt);
+            return await dAppKit.signAndExecuteTransaction({ transaction: tx });
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            setError(error);
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    }, [dAppKit]);
+
+    const removeFromBlacklist = useCallback(async (
+        gateObjectId: string, characterObjectId: string, addr: string
+    ) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const ownerCapId = await fetchOwnerCapId(gateObjectId);
+            const tx = new Transaction();
+            const { gateOwnerCap, returnReceipt } = buildOwnerCapTx(tx, characterObjectId, ownerCapId);
+            tx.moveCall({
+                target: `${PACKAGE_ID}::${MOD_GATE_POLICY}::remove_from_blacklist`,
+                arguments: [
+                    tx.object(EXTENSION_CONFIG_ID),
+                    tx.object(gateObjectId),
+                    gateOwnerCap,
+                    tx.pure.address(addr),
+                ],
+            });
+            returnOwnerCap(tx, characterObjectId, gateOwnerCap, returnReceipt);
+            return await dAppKit.signAndExecuteTransaction({ transaction: tx });
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            setError(error);
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    }, [dAppKit]);
+
+    // === Tribe Blocking ===
+
+    const addBlockedTribe = useCallback(async (
+        gateObjectId: string, characterObjectId: string, tribeId: number
+    ) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const ownerCapId = await fetchOwnerCapId(gateObjectId);
+            const tx = new Transaction();
+            const { gateOwnerCap, returnReceipt } = buildOwnerCapTx(tx, characterObjectId, ownerCapId);
+            tx.moveCall({
+                target: `${PACKAGE_ID}::${MOD_GATE_POLICY}::add_blocked_tribe`,
+                arguments: [
+                    tx.object(EXTENSION_CONFIG_ID),
+                    tx.object(gateObjectId),
+                    gateOwnerCap,
+                    tx.pure.u32(tribeId),
+                ],
+            });
+            returnOwnerCap(tx, characterObjectId, gateOwnerCap, returnReceipt);
+            return await dAppKit.signAndExecuteTransaction({ transaction: tx });
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            setError(error);
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    }, [dAppKit]);
+
+    const removeBlockedTribe = useCallback(async (
+        gateObjectId: string, characterObjectId: string, tribeId: number
+    ) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const ownerCapId = await fetchOwnerCapId(gateObjectId);
+            const tx = new Transaction();
+            const { gateOwnerCap, returnReceipt } = buildOwnerCapTx(tx, characterObjectId, ownerCapId);
+            tx.moveCall({
+                target: `${PACKAGE_ID}::${MOD_GATE_POLICY}::remove_blocked_tribe`,
+                arguments: [
+                    tx.object(EXTENSION_CONFIG_ID),
+                    tx.object(gateObjectId),
+                    gateOwnerCap,
+                    tx.pure.u32(tribeId),
+                ],
+            });
+            returnOwnerCap(tx, characterObjectId, gateOwnerCap, returnReceipt);
+            return await dAppKit.signAndExecuteTransaction({ transaction: tx });
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            setError(error);
+            throw error;
+        } finally {
+            setIsLoading(false);
+        }
+    }, [dAppKit]);
+
+    return {
+        configureGate,
+        addToBlacklist, removeFromBlacklist,
+        addBlockedTribe, removeBlockedTribe,
+        isLoading, error,
+    };
 }

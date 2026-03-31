@@ -1,4 +1,4 @@
-import { useParams, useLocation, Link } from 'react-router-dom';
+import { useParams, useLocation, Link, useNavigate } from 'react-router-dom';
 import { useConnection } from '@evefrontier/dapp-kit';
 import { useState } from 'react';
 import { useSyndicate } from '../hooks/useSyndicate';
@@ -8,8 +8,6 @@ import { useRecordContribution } from '../hooks/useRecordContribution';
 import { useDistributeTreasury } from '../hooks/useDistributeTreasury';
 import { useSyndicateActions } from '../hooks/useSyndicateActions';
 import {
-    SYNDICATE_ID,
-    MODE_LABELS,
     ROLE_LABELS,
 } from '../lib/constants';
 
@@ -37,8 +35,9 @@ function formatDate(ms: number) {
 export default function SyndicatePage() {
     const { id } = useParams();
     const location = useLocation();
-    const syndicateId = id || SYNDICATE_ID;
+    const syndicateId = id || '';
     const { currentAccount: account } = useConnection();
+    const navigate = useNavigate();
 
     // Dynamic lookup — hints from navigation state, fallback to RPC lookup
     const stateHints = (location.state as any) ?? {};
@@ -86,8 +85,8 @@ export default function SyndicatePage() {
     const isOfficer = isOwner || (account ? members.some(m => m.role === 1 && m.address === account.address) : false);
     const isMember = account ? members.some(m => m.address === account.address) : false;
 
-    // Gates — Phase 2 Step 9 (placeholder)
-    const gates: { id: string; mode: number }[] = [];
+    // Gate config form state
+    const [gateIdInput, setGateIdInput] = useState('');
 
     // Loading state
     if (isLoading) {
@@ -156,10 +155,7 @@ export default function SyndicatePage() {
                             <span className="stat-value">{formatScore(syndicate.total_contribution_score)}</span>
                             <span className="stat-label">Total Score</span>
                         </div>
-                        <div className="stat">
-                            <span className="stat-value">{gates.length}</span>
-                            <span className="stat-label">Gates</span>
-                        </div>
+
                     </div>
                 </div>
             </div>
@@ -280,6 +276,7 @@ export default function SyndicatePage() {
                                         <th>Resource</th>
                                         <th>Qty</th>
                                         <th>Value</th>
+                                        <th>Notes</th>
                                         <th>Date</th>
                                     </tr>
                                 </thead>
@@ -306,6 +303,11 @@ export default function SyndicatePage() {
                                             </td>
                                             <td>
                                                 <span className="text-muted" style={{ fontSize: '0.8rem' }}>
+                                                    {e.notes || '—'}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <span className="text-muted" style={{ fontSize: '0.8rem' }}>
                                                     {formatDate(e.timestamp)}
                                                 </span>
                                             </td>
@@ -316,31 +318,33 @@ export default function SyndicatePage() {
                         )}
                     </div>
 
-                    {/* Linked Gates */}
+                    {/* Configure Gate */}
                     <div className="card">
                         <div className="card-header">
-                            <span className="card-title">Linked Gates</span>
-                            <Link to="/gate/new" className="btn btn-secondary" style={{ padding: '4px 12px', fontSize: '0.8rem' }}>
-                                + Configure Gate
-                            </Link>
+                            <span className="card-title">Gate Configuration</span>
                         </div>
-                        {gates.length === 0 ? (
-                            <div className="empty-state">No gates configured yet — coming in Step 9</div>
-                        ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                {gates.map(g => (
-                                    <div key={g.id} className="gate-row">
-                                        <span className="address">{g.id}</span>
-                                        <span className={`badge badge-${['members', 'toll', 'free', 'blacklist'][g.mode]}`}>
-                                            {MODE_LABELS[g.mode]}
-                                        </span>
-                                        <Link to={`/gate/${g.id}`} className="btn btn-ghost" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
-                                            Manage →
-                                        </Link>
-                                    </div>
-                                ))}
+                        <div className="form">
+                            <div className="form-group">
+                                <label className="form-label">Gate Object ID</label>
+                                <input
+                                    className="input"
+                                    type="text"
+                                    value={gateIdInput}
+                                    onChange={e => setGateIdInput(e.target.value)}
+                                    placeholder="0x... (copy Assembly ID from game)"
+                                />
+                                <span className="form-hint">
+                                    Open your gate in-game → copy the Assembly ID → paste here
+                                </span>
                             </div>
-                        )}
+                            <button
+                                className="btn btn-primary"
+                                disabled={!gateIdInput.trim().startsWith('0x')}
+                                onClick={() => navigate(`/gate/${gateIdInput.trim()}`, { state: { syndicateId } })}
+                            >
+                                Configure Gate →
+                            </button>
+                        </div>
                     </div>
 
                 </div>
@@ -450,6 +454,8 @@ export default function SyndicatePage() {
                                                 setRcContributor(''); setRcResource('');
                                                 setRcQuantity(''); setRcPrice(''); setRcNotes('');
                                                 setRcSuccess(true);
+                                                refetch();
+                                                refetchEntries();
                                             }
                                         }}
                                     >
@@ -487,7 +493,7 @@ export default function SyndicatePage() {
                                     disabled={!depositAmount || actionPending}
                                     onClick={async () => {
                                         const res = await deposit(parseFloat(depositAmount));
-                                        if (res) setDepositAmount('');
+                                        if (res) { setDepositAmount(''); refetch(); }
                                     }}
                                     style={{ flex: 1 }}
                                 >
@@ -557,6 +563,7 @@ export default function SyndicatePage() {
                                             if (res) {
                                                 setDistributeAmount('');
                                                 setDistributeSuccess(true);
+                                                refetch();
                                             }
                                         }}
                                     >
@@ -578,23 +585,19 @@ export default function SyndicatePage() {
                             <span className="card-title">Invite Link</span>
                         </div>
                         <div className="form">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <div className="input" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'text', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {`${window.location.origin}/join/${syndicateId.slice(0, 10)}...`}
-                                </div>
-                                <button
-                                    className="btn btn-ghost"
-                                    style={{ padding: '8px 12px', flexShrink: 0 }}
-                                    title="Copy invite link"
-                                    onClick={() => {
-                                        navigator.clipboard.writeText(`${window.location.origin}/join/${syndicateId}`);
-                                        setCopied(true);
-                                        setTimeout(() => setCopied(false), 2000);
-                                    }}
-                                >
-                                    {copied ? '✅' : '📋'}
-                                </button>
+                            <div className="input" style={{ color: 'var(--text-muted)', fontSize: '0.8rem', wordBreak: 'break-all', overflow: 'hidden' }}>
+                                {`${window.location.origin}/join/${syndicateId}`}
                             </div>
+                            <button
+                                className="btn btn-secondary"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(`${window.location.origin}/join/${syndicateId}`);
+                                    setCopied(true);
+                                    setTimeout(() => setCopied(false), 2000);
+                                }}
+                            >
+                                {copied ? '✅ Copied' : 'Copy Link'}
+                            </button>
                         </div>
                     </div>
 
